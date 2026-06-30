@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DnB MeltFlow VR — Dome Visualiser</title>
+  <title>DnB MeltFlow VR — Live Sphere</title>
   <style>
     :root{
       --bg:#05060b;
@@ -128,7 +128,7 @@
 
   <aside id="panel" class="panel">
     <h1>DnB MeltFlow VR</h1>
-    <p class="sub">Butterchurn/MilkDrop radio visuals with WebXR dome mode: the live visual canvas becomes a fixed front-facing visual shell around your starting headset position.</p>
+    <p class="sub">Butterchurn/MilkDrop radio visuals with WebXR sphere mode: sit inside a live full visual bubble with the image around you, above you, and below you.</p>
 
     <section class="section">
       <span class="label">Audio source</span>
@@ -199,23 +199,23 @@
     </section>
 
     <section class="section">
-      <span class="label">VR dome test</span>
+      <span class="label">VR sphere mode</span>
       <div class="grid">
         <div class="row">
           <button id="enterVrBtn" class="primary">Enter VR</button>
-          <button id="recenterBtn" class="secondary">Recenter dome</button>
+          <button id="recenterBtn" class="secondary">Recenter sphere</button>
         </div>
         <div class="control">
-          <div class="controlHead"><span>Dome distance</span><span class="value" id="distanceVal">6.2m</span></div>
-          <input id="distanceSlider" type="range" min="45" max="100" value="62" />
+          <div class="controlHead"><span>Sphere radius</span><span class="value" id="distanceVal">6.4m</span></div>
+          <input id="distanceSlider" type="range" min="45" max="100" value="64" />
         </div>
         <div class="control">
-          <div class="controlHead"><span>Dome width</span><span class="value" id="curveVal">190°</span></div>
-          <input id="curveSlider" type="range" min="130" max="220" value="190" />
+          <div class="controlHead"><span>Horizontal scale</span><span class="value" id="curveVal">100</span></div>
+          <input id="curveSlider" type="range" min="75" max="140" value="100" />
         </div>
         <div class="control">
-          <div class="controlHead"><span>Dome height</span><span class="value" id="screenSizeVal">115</span></div>
-          <input id="screenSizeSlider" type="range" min="85" max="165" value="115" />
+          <div class="controlHead"><span>Vertical scale</span><span class="value" id="screenSizeVal">100</span></div>
+          <input id="screenSizeSlider" type="range" min="75" max="140" value="100" />
         </div>
         <p id="webxrNotice">WebXR VR is only available in supported browsers/headsets over HTTPS, such as Meta Quest Browser on a GitHub Pages URL.</p>
       </div>
@@ -364,16 +364,9 @@
     }
 
     function resizeCanvas() {
-      let w, h;
-      if (state.xrActive) {
-        // Render Butterchurn larger while in VR so the dome texture does not look too soft.
-        w = 1792;
-        h = 1008;
-      } else {
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-        w = Math.max(640, Math.floor(innerWidth * dpr));
-        h = Math.max(360, Math.floor(innerHeight * dpr));
-      }
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const w = Math.max(640, Math.floor(innerWidth * dpr));
+      const h = Math.max(360, Math.floor(innerHeight * dpr));
       if (els.canvas.width !== w || els.canvas.height !== h) {
         els.canvas.width = w;
         els.canvas.height = h;
@@ -559,7 +552,7 @@
 
     function applyVrScreenSettings() {
       els.distanceVal.textContent = `${(Number(els.distanceSlider.value)/10).toFixed(1)}m`;
-      els.curveVal.textContent = `${els.curveSlider.value}°`;
+      els.curveVal.textContent = String(els.curveSlider.value);
       els.screenSizeVal.textContent = String(els.screenSizeSlider.value);
       if (state.vr?.screen) {
         rebuildCurvedScreen();
@@ -804,23 +797,21 @@
       const stars = new THREE.Points(starGeo, starMat);
       ambience.add(stars);
 
-      state.vr = { scene, camera, renderer, texture, rig, ambience, floor, stars, domeGroup, screens: [], domeMaterials: [], screen: null, material: null, domeCentered: false };
+      state.vr = { scene, camera, renderer, texture, rig, ambience, floor, stars, domeGroup, screen: null, material: null, sphereCentered: false };
       rebuildCurvedScreen();
 
       renderer.xr.addEventListener('sessionstart', () => {
         state.xrActive = true;
-        state.vr.domeCentered = false;
-        resizeCanvas();
+        state.vr.sphereCentered = false;
         document.body.classList.add('xr-active');
         setClean(true);
-        status('VR dome started. Turn your head to look around the fixed visual shell. Trigger = random, thumbstick left/right = presets, B/Y = exit VR.\n' + diagnostic());
+        status('VR sphere started. Turn your head to look around the live full visual bubble. Trigger = random, thumbstick left/right = presets, B/Y = exit VR.\n' + diagnostic());
       });
       renderer.xr.addEventListener('sessionend', () => {
         state.xrActive = false;
         state.xrSession = null;
         document.body.classList.remove('xr-active');
         document.body.classList.remove('presentation-mode');
-        resizeCanvas();
         setClean(false);
         if (state.visualizer) {
           try { state.visualizer.render(); } catch (_) {}
@@ -835,11 +826,6 @@
           try { state.visualizer.render(); } catch (err) { console.warn(err); }
         }
         if (state.vr.texture) state.vr.texture.needsUpdate = true;
-        if (state.vr.domeMaterials) {
-          for (const mat of state.vr.domeMaterials) {
-            if (mat.uniforms?.uTime) mat.uniforms.uTime.value = t;
-          }
-        }
         if (state.vr.ambience) state.vr.ambience.rotation.y = Math.sin(t * 0.08) * 0.05;
         if (state.vr.stars) state.vr.stars.rotation.y = t * 0.01;
         pollVrControllers();
@@ -847,165 +833,45 @@
       });
     }
 
-    function createCurvedDomeGeometry(radius, hArcDeg, vArcDeg, widthSegments = 192, heightSegments = 96) {
-      const hArc = THREE.MathUtils.degToRad(hArcDeg);
-      const vArc = THREE.MathUtils.degToRad(vArcDeg);
-      const centerPitch = THREE.MathUtils.degToRad(4);
-      const vertices = [];
-      const uvs = [];
-      const indices = [];
-
-      for (let y = 0; y <= heightSegments; y++) {
-        const v = y / heightSegments;
-        // Balanced vertical field: less "shirt-neck" shape, more observatory dome.
-        const pitch = centerPitch - vArc * 0.5 + v * vArc;
-        const cp = Math.cos(pitch);
-        const sp = Math.sin(pitch);
-
-        for (let x = 0; x <= widthSegments; x++) {
-          const u = x / widthSegments;
-          const yaw = -hArc / 2 + u * hArc;
-          vertices.push(
-            Math.sin(yaw) * cp * radius,
-            sp * radius,
-            -Math.cos(yaw) * cp * radius
-          );
-          uvs.push(u, 1 - v);
-        }
-      }
-
-      for (let y = 0; y < heightSegments; y++) {
-        for (let x = 0; x < widthSegments; x++) {
-          const a = y * (widthSegments + 1) + x;
-          const b = a + 1;
-          const c = a + widthSegments + 2;
-          const d = a + widthSegments + 1;
-          indices.push(a, d, b, b, d, c);
-        }
-      }
-
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-      geo.setIndex(indices);
-      geo.computeVertexNormals();
+    function createVisualSphereGeometry(radius, widthSegments = 128, heightSegments = 72) {
+      // Full inside-facing sphere: the Butterchurn canvas becomes an equirectangular
+      // visual bubble. It is not true stereo VR, but it gives floor/sky/left/right
+      // coverage without the hard rectangle edge.
+      const geo = new THREE.SphereGeometry(radius, widthSegments, heightSegments);
       return geo;
-    }
-
-    function createDomeMaterial(texture, options = {}) {
-      const {
-        opacity = 1,
-        edge = 0.13,
-        warp = 0,
-        offset = [0, 0],
-        brightness = 1
-      } = options;
-
-      return new THREE.ShaderMaterial({
-        uniforms: {
-          uMap: { value: texture },
-          uOpacity: { value: opacity },
-          uEdge: { value: edge },
-          uWarp: { value: warp },
-          uOffset: { value: new THREE.Vector2(offset[0], offset[1]) },
-          uBrightness: { value: brightness },
-          uTime: { value: 0 }
-        },
-        vertexShader: `
-          varying vec2 vUv;
-          void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `,
-        fragmentShader: `
-          uniform sampler2D uMap;
-          uniform float uOpacity;
-          uniform float uEdge;
-          uniform float uWarp;
-          uniform vec2 uOffset;
-          uniform float uBrightness;
-          uniform float uTime;
-          varying vec2 vUv;
-
-          float edgeMask(vec2 uv) {
-            float ex = smoothstep(0.0, uEdge, uv.x) * smoothstep(0.0, uEdge, 1.0 - uv.x);
-            float ey = smoothstep(0.0, uEdge * 1.15, uv.y) * smoothstep(0.0, uEdge * 1.15, 1.0 - uv.y);
-            vec2 c = (uv - 0.5) * vec2(1.08, 1.34);
-            float oval = 1.0 - smoothstep(0.60, 0.93, length(c));
-            return clamp(ex * ey * oval, 0.0, 1.0);
-          }
-
-          void main() {
-            vec2 uv = vUv;
-            vec2 sampleUv = uv + uOffset;
-            sampleUv.x += sin(uTime * 0.055 + uv.y * 8.0) * uWarp;
-            sampleUv.y += cos(uTime * 0.041 + uv.x * 7.0) * uWarp * 0.55;
-            sampleUv = clamp(sampleUv, vec2(0.002), vec2(0.998));
-
-            vec4 tex = texture2D(uMap, sampleUv);
-            float alpha = edgeMask(uv) * uOpacity;
-            vec3 colour = tex.rgb * uBrightness;
-            gl_FragColor = vec4(colour, alpha);
-          }
-        `,
-        transparent: true,
-        depthWrite: false,
-        depthTest: true,
-        side: THREE.DoubleSide,
-        toneMapped: false
-      });
-    }
-
-    function disposeDomeLayers() {
-      if (!state.vr) return;
-      const { domeGroup } = state.vr;
-      if (state.vr.screens) {
-        for (const mesh of state.vr.screens) {
-          mesh.geometry.dispose();
-          mesh.material.dispose();
-          domeGroup.remove(mesh);
-        }
-      }
-      state.vr.screens = [];
-      state.vr.domeMaterials = [];
-      state.vr.screen = null;
-      state.vr.material = null;
     }
 
     function rebuildCurvedScreen() {
       if (!state.vr) return;
       const { texture, domeGroup } = state.vr;
-      disposeDomeLayers();
-
-      const baseRadius = Number(els.distanceSlider.value) / 10;
-      const hArcDeg = Number(els.curveSlider.value);
-      const vArcDeg = 82 + (Number(els.screenSizeSlider.value) / 100) * 25;
-
-      const layerSpecs = [
-        { radius: baseRadius, opacity: 0.96, edge: 0.125, warp: 0.000, offset: [0.000, 0.000], brightness: 1.00 },
-        { radius: baseRadius * 1.035, opacity: 0.18, edge: 0.18, warp: 0.0028, offset: [0.010, -0.006], brightness: 0.92 },
-        { radius: baseRadius * 1.075, opacity: 0.11, edge: 0.22, warp: 0.0048, offset: [-0.014, 0.008], brightness: 0.86 }
-      ];
-
-      for (let i = layerSpecs.length - 1; i >= 0; i--) {
-        const spec = layerSpecs[i];
-        const geo = createCurvedDomeGeometry(spec.radius, hArcDeg, vArcDeg);
-        const mat = createDomeMaterial(texture, spec);
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.renderOrder = i;
-        state.vr.screens.push(mesh);
-        state.vr.domeMaterials.push(mat);
-        domeGroup.add(mesh);
-        if (i === 0) {
-          state.vr.screen = mesh;
-          state.vr.material = mat;
-        }
+      if (state.vr.screen) {
+        state.vr.screen.geometry.dispose();
+        state.vr.screen.material.dispose();
+        domeGroup.remove(state.vr.screen);
       }
+
+      const radius = Number(els.distanceSlider.value) / 10;
+      const horizontalScale = Number(els.curveSlider.value) / 100;
+      const verticalScale = Number(els.screenSizeSlider.value) / 100;
+
+      const geo = createVisualSphereGeometry(radius);
+
+      const mat = new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.BackSide,
+        toneMapped: false
+      });
+
+      const screen = new THREE.Mesh(geo, mat);
+      // Keep it a sphere by default, but allow small shape correction if needed.
+      screen.scale.set(horizontalScale, verticalScale, horizontalScale);
+      state.vr.screen = screen;
+      state.vr.material = mat;
+      domeGroup.add(screen);
     }
 
     function centerDomeOnHeadset(force = false) {
-      if (!state.xrActive || !state.vr || (!force && state.vr.domeCentered)) return;
+      if (!state.xrActive || !state.vr || (!force && state.vr.sphereCentered)) return;
       const xrCamera = state.vr.renderer.xr.getCamera(state.vr.camera);
       const pos = new THREE.Vector3();
       const quat = new THREE.Quaternion();
@@ -1018,10 +884,10 @@
       forward.normalize();
 
       state.vr.domeGroup.position.copy(pos);
-      // Keep the dome level with the user's eye position, but do not attach it to the head.
+      // Keep the sphere level with the user's eye position, but do not attach it to the head.
       const yaw = Math.atan2(forward.x, -forward.z);
       state.vr.domeGroup.rotation.set(0, yaw, 0);
-      state.vr.domeCentered = true;
+      state.vr.sphereCentered = true;
     }
 
     async function enterVr() {
@@ -1060,10 +926,10 @@
       if (!state.vr) await initVrWorld();
       rebuildCurvedScreen();
       if (state.xrActive) {
-        state.vr.domeCentered = false;
+        state.vr.sphereCentered = false;
         centerDomeOnHeadset(true);
       }
-      status('VR dome recentered.\n' + diagnostic());
+      status('VR sphere recentered.\n' + diagnostic());
     }
 
     function pollVrControllers() {
